@@ -89,7 +89,9 @@ export default function longhand(pi: ExtensionAPI): void {
 	function enter(ctx: ExtensionContext): void {
 		if (on) return;
 		toolsBefore = pi.getActiveTools();
-		allowed = new Set([...allowed, ...readProjectAllowlist(ctx.cwd)]);
+		const file = readProjectAllowlist(ctx.cwd);
+		if (file.error) ctx.ui.notify(`.longhand.json ignorado: ${file.error}`, "warning");
+		allowed = new Set([...allowed, ...file.names]);
 		on = true;
 		applyInventory(true);
 		paint(ctx);
@@ -126,6 +128,10 @@ export default function longhand(pi: ExtensionAPI): void {
 			if (verb === "allow") {
 				const name = rest[0];
 				if (!name) return void ctx.ui.notify("uso: /longhand allow <nome>", "warning");
+				// Kept even if unknown, since a tool can register later, but a typo should not pass in silence.
+				if (!(toolsBefore ?? pi.getActiveTools()).includes(name)) {
+					ctx.ui.notify(`${name} não está entre as ferramentas atuais`, "warning");
+				}
 				allowed.add(name);
 				if (on) applyInventory(true);
 				else ctx.ui.notify(`${name} entra na lista ao ligar o modo`, "info");

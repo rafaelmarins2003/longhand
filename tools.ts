@@ -45,17 +45,20 @@ export function takeInventory(active: string[], allowed: ReadonlySet<string>): I
  * in the repo shows up in the diff and in the blame.
  *
  * { "allowTools": ["obsidian_read", "obsidian_search"] }
+ *
+ * A broken file must not widen the fence, so it hands nothing back. But it
+ * says why, instead of leaving you wondering where your tool went.
  */
-export function readProjectAllowlist(cwd: string): Set<string> {
+export function readProjectAllowlist(cwd: string): { names: Set<string>; error?: string } {
 	const path = join(cwd, ".longhand.json");
-	if (!existsSync(path)) return new Set();
+	if (!existsSync(path)) return { names: new Set() };
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf8"));
-		const list = parsed?.allowTools;
-		return Array.isArray(list) ? new Set(list.filter((n) => typeof n === "string")) : new Set();
-	} catch {
-		// A broken config must not silently widen the fence.
-		return new Set();
+		const list = JSON.parse(readFileSync(path, "utf8"))?.allowTools;
+		if (list === undefined) return { names: new Set() };
+		if (!Array.isArray(list)) return { names: new Set(), error: "allowTools deve ser uma lista de nomes" };
+		return { names: new Set(list.filter((n) => typeof n === "string")) };
+	} catch (err) {
+		return { names: new Set(), error: err instanceof Error ? err.message : String(err) };
 	}
 }
 
