@@ -7,7 +7,7 @@
  *
  *   /longhand [on|off]        toggle
  *   /longhand tools           show the inventory again
- *   /longhand allow <nome>    hand one tool back
+ *   /longhand allow <name>    hand one tool back
  *   ctrl+alt+l                toggle
  *   --no-longhand             start a session outside it
  */
@@ -15,16 +15,19 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { classify } from "./guard.ts";
-import { LONGHAND_PROMPT } from "./prompt.ts";
+import { DeliveryServer } from "./delivery.ts";
+import { LONGHAND_GUIDELINES } from "./prompt.ts";
 import { readProjectAllowlist, takeInventory, wrapNames, type Inventory } from "./tools.ts";
 
 /** Sessions open in longhand. ctrl+alt+l is how you leave. */
 const START_ON = true;
+const PUBLISH = "longhand_publish";
 
 const HANDOFF =
-	"Longhand is on: you do not write files. Explain the cause, then give a " +
-	"paste-ready block and where it goes. Do not look for another way to apply it.";
+	"Longhand is on: you do not write files. Explain the cause and publish the " +
+	"paste-ready change with longhand_publish. Do not look for another way to apply it.";
 
 export default function longhand(pi: ExtensionAPI): void {
 	let on = false;
@@ -34,6 +37,42 @@ export default function longhand(pi: ExtensionAPI): void {
 	let kept = new Set<string>();
 	/** Tools handed back: from .longhand.json, plus /longhand allow this session. */
 	let allowed = new Set<string>();
+	const delivery = new DeliveryServer(({ kind, comment, title }) => {
+		const message = kind === "adjust"
+			? `About the longhand proposal “${title}”: please adjust it as follows: ${comment}`
+			: `The longhand proposal “${title}” makes sense.${comment ? ` Note: ${comment}` : ""} I have not confirmed that I applied the code.`;
+		pi.sendUserMessage(message, { deliverAs: "followUp" });
+	});
+
+	pi.registerTool({
+		name: PUBLISH,
+		label: "Publish longhand proposal",
+		description: "Publish a code proposal on a local page for the user to review and copy. Does not modify project files.",
+		promptGuidelines: LONGHAND_GUIDELINES,
+		parameters: Type.Object({
+			title: Type.String(),
+			diagnosis: Type.String(),
+			path: Type.String(),
+			location: Type.String(),
+			code: Type.String(),
+			verification: Type.String(),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!on) throw new Error("Longhand is off");
+			const url = await delivery.publish(params);
+			return {
+				content: [{ type: "text", text: `Proposal published: ${url}. ${ctx.mode === "tui" ? "The link in this tool result is the final answer." : "Reply with only the link."}` }],
+				details: { url },
+				terminate: ctx.mode === "tui",
+			};
+		},
+		renderCall(args) {
+			return new Text(`Publishing proposal: ${args.title}`, 0, 0);
+		},
+		renderResult(result) {
+			return new Text((result.details as { url?: string } | undefined)?.url ?? "Could not publish the proposal", 0, 0);
+		},
+	});
 
 	pi.registerFlag("longhand", {
 		description: "Force longhand mode on for this session",
@@ -54,11 +93,11 @@ export default function longhand(pi: ExtensionAPI): void {
 		box.addChild(
 			new Text(
 				theme.fg("accent", "✍ longhand") +
-					theme.fg("dim", `  ${inv.kept.length} ativas, ${inv.removed.length} desligadas`),
+					theme.fg("dim", `  ${inv.kept.length} active, ${inv.removed.length} disabled`),
 			),
 		);
 		box.addChild(new Text(""));
-		box.addChild(new Text(theme.fg("accent", "  ativas   ") + inv.kept.join("  ")));
+		box.addChild(new Text(theme.fg("accent", "  active   ") + inv.kept.join("  ")));
 
 		if (inv.removed.length > 0) {
 			box.addChild(new Text(""));
@@ -68,14 +107,14 @@ export default function longhand(pi: ExtensionAPI): void {
 		}
 
 		box.addChild(new Text(""));
-		box.addChild(new Text(theme.fg("dim", "  /longhand allow <nome>   devolve uma")));
-		box.addChild(new Text(theme.fg("dim", "  /longhand                sai do modo")));
+		box.addChild(new Text(theme.fg("dim", "  /longhand allow <name>   restore a tool")));
+		box.addChild(new Text(theme.fg("dim", "  /longhand                leave the mode")));
 		return box;
 	});
 
 	/** Apply the inventory to the live session and show what it did. */
 	function applyInventory(announce: boolean): Inventory {
-		const inv = takeInventory(toolsBefore ?? pi.getActiveTools(), allowed);
+		const inv = takeInventory([...(toolsBefore ?? pi.getActiveTools()), PUBLISH], allowed);
 		kept = new Set(inv.kept);
 		pi.setActiveTools(inv.kept);
 		if (announce) pi.appendEntry("longhand-inventory", inv);
@@ -88,9 +127,9 @@ export default function longhand(pi: ExtensionAPI): void {
 
 	function enter(ctx: ExtensionContext): void {
 		if (on) return;
-		toolsBefore = pi.getActiveTools();
+		toolsBefore = pi.getActiveTools().filter((name) => name !== PUBLISH);
 		const file = readProjectAllowlist(ctx.cwd);
-		if (file.error) ctx.ui.notify(`.longhand.json ignorado: ${file.error}`, "warning");
+		if (file.error) ctx.ui.notify(`Ignoring .longhand.json: ${file.error}`, "warning");
 		allowed = new Set([...allowed, ...file.names]);
 		on = true;
 		applyInventory(true);
@@ -104,11 +143,11 @@ export default function longhand(pi: ExtensionAPI): void {
 		kept = new Set();
 		on = false;
 		paint(ctx);
-		ctx.ui.notify("longhand off — o agente pode escrever de novo", "info");
+		ctx.ui.notify("Longhand off — the agent can write files again", "info");
 	}
 
 	pi.registerCommand("longhand", {
-		description: "Alterna o modo longhand (o agente investiga, você escreve)",
+		description: "Toggle longhand mode (the agent investigates, you apply code)",
 		getArgumentCompletions: (prefix: string) =>
 			["on", "off", "tools", "allow"]
 				.filter((v) => v.startsWith(prefix))
@@ -120,21 +159,21 @@ export default function longhand(pi: ExtensionAPI): void {
 			if (verb === "off") return void leave(ctx);
 
 			if (verb === "tools") {
-				if (!on) return void ctx.ui.notify("longhand está desligado", "info");
-				pi.appendEntry("longhand-inventory", takeInventory(toolsBefore ?? [], allowed));
+				if (!on) return void ctx.ui.notify("Longhand is off", "info");
+				pi.appendEntry("longhand-inventory", takeInventory([...(toolsBefore ?? []), PUBLISH], allowed));
 				return;
 			}
 
 			if (verb === "allow") {
 				const name = rest[0];
-				if (!name) return void ctx.ui.notify("uso: /longhand allow <nome>", "warning");
+				if (!name) return void ctx.ui.notify("Usage: /longhand allow <name>", "warning");
 				// Kept even if unknown, since a tool can register later, but a typo should not pass in silence.
 				if (!(toolsBefore ?? pi.getActiveTools()).includes(name)) {
-					ctx.ui.notify(`${name} não está entre as ferramentas atuais`, "warning");
+					ctx.ui.notify(`${name} is not among the current tools`, "warning");
 				}
 				allowed.add(name);
 				if (on) applyInventory(true);
-				else ctx.ui.notify(`${name} entra na lista ao ligar o modo`, "info");
+				else ctx.ui.notify(`${name} will be available when longhand is on`, "info");
 				return;
 			}
 
@@ -143,14 +182,21 @@ export default function longhand(pi: ExtensionAPI): void {
 	});
 
 	pi.registerShortcut("ctrl+alt+l", {
-		description: "Alterna o modo longhand",
+		description: "Toggle longhand mode",
 		handler: async (ctx) => (on ? leave(ctx) : enter(ctx)),
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		const start = pi.getFlag("no-longhand") ? false : pi.getFlag("longhand") || START_ON;
 		if (start) enter(ctx);
-		else paint(ctx);
+		else {
+			pi.setActiveTools(pi.getActiveTools().filter((name) => name !== PUBLISH));
+			paint(ctx);
+		}
+	});
+
+	pi.on("session_shutdown", async () => {
+		await delivery.close();
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -161,7 +207,7 @@ export default function longhand(pi: ExtensionAPI): void {
 		if (!kept.has(event.toolName)) {
 			return {
 				block: true,
-				reason: `${event.toolName} está desligado no longhand. ${HANDOFF}`,
+				reason: `${event.toolName} is disabled in longhand. ${HANDOFF}`,
 			};
 		}
 
@@ -169,22 +215,18 @@ export default function longhand(pi: ExtensionAPI): void {
 			const verdict = classify(event.input.command);
 
 			if (verdict.kind === "block") {
-				return { block: true, reason: `Bloqueado no longhand — ${verdict.reason}. ${HANDOFF}` };
+				return { block: true, reason: `Blocked in longhand — ${verdict.reason}. ${HANDOFF}` };
 			}
 
 			if (verdict.kind === "ask") {
 				const allowedOnce = ctx.hasUI
-					? await ctx.ui.confirm("longhand", `${verdict.reason}.\n\n${event.input.command}\n\nRodar uma vez?`)
+						? await ctx.ui.confirm("longhand", `${verdict.reason}.\n\n${event.input.command}\n\nRun once?`)
 					: false;
 				if (!allowedOnce) {
-					return { block: true, reason: `Recusado no longhand — ${verdict.reason}. ${HANDOFF}` };
+						return { block: true, reason: `Declined in longhand — ${verdict.reason}. ${HANDOFF}` };
 				}
 			}
 		}
 	});
 
-	pi.on("before_agent_start", async (event) => {
-		if (!on) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${LONGHAND_PROMPT}` };
-	});
 }

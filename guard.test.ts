@@ -47,7 +47,7 @@ const cases = {
 		// git, the half that mutates
 		"git add f",
 		"git commit -m 'list'",
-		"git -C ../outro add f",
+		"git -C ../other add f",
 		"git -c user.name=x commit",
 		"git stash",
 		"git stash pop",
@@ -73,7 +73,7 @@ const cases = {
 		"cmd > /dev/null 2>&1",
 		// quoted text is text
 		'echo "a > b"',
-		"awk '$3 > 5' dados",
+		"awk '$3 > 5' data",
 		"sed 's/>/x/' f",
 		'grep ">" f',
 		'grep ";" f',

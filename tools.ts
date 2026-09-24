@@ -20,7 +20,7 @@ import { join } from "node:path";
  * `bash` is here because guard.ts fences it, not because it is harmless.
  * `powershell` is not: there is no guard for it yet, so it stays off.
  */
-const KEPT = new Set(["read", "grep", "find", "ls", "bash"]);
+const KEPT = new Set(["read", "grep", "find", "ls", "bash", "longhand_publish"]);
 
 export interface Inventory {
 	/** Tools that stay active in longhand. */
@@ -55,7 +55,7 @@ export function readProjectAllowlist(cwd: string): { names: Set<string>; error?:
 	try {
 		const list = JSON.parse(readFileSync(path, "utf8"))?.allowTools;
 		if (list === undefined) return { names: new Set() };
-		if (!Array.isArray(list)) return { names: new Set(), error: "allowTools deve ser uma lista de nomes" };
+		if (!Array.isArray(list)) return { names: new Set(), error: "allowTools must be a list of names" };
 		return { names: new Set(list.filter((n) => typeof n === "string")) };
 	} catch (err) {
 		return { names: new Set(), error: err instanceof Error ? err.message : String(err) };
