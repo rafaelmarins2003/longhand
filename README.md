@@ -1,8 +1,31 @@
 # longhand
 
-The agent investigates; you apply the code. `longhand` is a Pi extension that
-limits writing tools, asks the agent to hand over one change at a time, and
-publishes the proposal on a local page with code that is easy to copy.
+I noticed I was getting lazier. Not slower. The agent wrote the code, I
+skimmed the diff, it passed, I moved on. A few weeks later I could not
+explain parts of my own project.
+
+It compounds. Code you did not write is code you do not really read. Code
+you do not read gets messier, because nobody is pushing back on it. Messier
+code is harder to read, so you lean on the agent more. Eventually only the
+agent can fix the bugs, and the agent gets worse too, because the project it
+has to hold in context keeps growing.
+
+Reviewing harder does not fix this. Nobody reads a 400-line diff with real
+attention, and everyone clicks approve.
+
+longhand shrinks the unit you approve back down to something that fits in
+your head. The agent still does the tedious half: reading, searching,
+running the build and the tests, finding the actual cause. It just does not
+write into your project. It hands you one change at a time, and you are the
+one who puts it in.
+
+The goal: at the end of the day, you can explain everything that went in.
+
+## What it does
+
+`longhand` is a Pi extension that limits writing tools, asks the agent to
+hand over one change at a time, and publishes the proposal on a local page
+with code that is easy to copy.
 
 ## Install
 
